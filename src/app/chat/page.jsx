@@ -29,31 +29,32 @@ export default function ChatPage() {
   // Connect socket and fetch rooms
   useEffect(() => {
     const t = token || sessionStorage.getItem("token");
-    if (!t) return;
+    if (!t) {
+      router.push("/login");
+      return;
+    }
 
-    // Connect the singleton socket
     const socket = getSocket(t);
+    socket.auth = { token: t }; // ensure token is fresh
+
     if (!socket.connected) {
       socket.connect();
     }
 
-    // Fetch all rooms
     fetch("/api/rooms", {
       headers: { Authorization: `Bearer ${t}` },
     })
       .then((r) => r.json())
       .then((rooms) => {
-        if (Array.isArray(rooms)) {
-          dispatch(setRooms(rooms));
-        }
+        if (Array.isArray(rooms)) dispatch(setRooms(rooms));
       })
-      .catch((err) => console.error("Fetch rooms error:", err));
+      .catch(console.error);
 
     return () => {
       socket.off();
     };
   }, [token]);
-
+  
   return (
     <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
       <Sidebar />

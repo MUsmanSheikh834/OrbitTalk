@@ -78,7 +78,7 @@ app.prepare().then(() => {
           data: { content: content.trim(), roomId, senderId: socket.user.id },
           include: { sender: { select: { id: true, username: true } } },
         });
-        io.to(roomId).emit("new_message", message);
+        io.to(roomId).emit("new_message", {...message,roomId: roomId});
       } catch (err) {
         console.error("[Socket] send_message error:", err.message);
         socket.emit("error", { message: "Could not send message" });

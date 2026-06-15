@@ -11,43 +11,51 @@ export default function ChatWindow() {
   const { token, user } = useSelector((s) => s.auth);
   const messagesByRoom = useSelector((s) => s.chat.messagesByRoom);
   const messages = messagesByRoom[activeRoom?.id] || [];
+  console.log("rendering room:", activeRoom?.id, "message count:", messages.length);
   const bottomRef = useRef(null);
 
+  function showName(name){
+    var roomname=name.split("_");
+    return roomname.find(n=> n!==user.username);
+  }
+
   useEffect(() => {
-    if (!activeRoom) return;
+  if (!activeRoom) return;
 
-    const t = token || sessionStorage.getItem("token");
-    if (!t) return;
-    const socket = getSocket(t);
+  const roomId = activeRoom.id; // capture to avoid stale closure
+  const t = token || sessionStorage.getItem("token");
+  if (!t) return;
 
-    // Join the room via socket
-    socket.emit("join_room", activeRoom.id);
+  const socket = getSocket(t);
+  console.log("socket connected:", socket.connected);
 
-    // Fetch message history from DB
-    fetch(`/api/messages/${activeRoom.id}`, {
-  headers: { Authorization: `Bearer ${t}` },
-})
-  .then((r) => {
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
+  socket.emit("join_room", roomId);
+
+  fetch(`/api/messages/${roomId}`, {
+    headers: { Authorization: `Bearer ${t}` },
   })
-  .then((msgs) => {
-    if (Array.isArray(msgs)) {
-      dispatch(setMessages({ roomId: activeRoom.id, messages: msgs }));
-    }
-  })
-  .catch((err) => console.error("Fetch messages error:", err));
+    .then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then((msgs) => {
+      if (Array.isArray(msgs)) {
+        console.log("storing msgs for room:", roomId, "count:", msgs.length, "msgs:", msgs.map(m => m.roomId));
+        dispatch(setMessages({ roomId, messages: msgs }));
+      }
+    })
+    .catch((err) => console.error("Fetch messages error:", err));
 
-    // Listen for new incoming messages
-    socket.on("new_message", (message) => {
-      dispatch(addMessage({ roomId: message.roomId, message }));
-    });
+  socket.on("new_message", (message) => {
+    console.log("incoming message:", message);
+    dispatch(addMessage({ roomId: message.roomId, message }));
+  });
 
-    return () => {
-      socket.emit("leave_room", activeRoom.id);
-      socket.off("new_message");
-    };
-  }, [activeRoom?.id]);
+  return () => {
+    socket.emit("leave_room", roomId);
+    socket.off("new_message");
+  };
+}, [activeRoom?.id]);
 
   // Auto scroll to latest message
   useEffect(() => {
@@ -68,7 +76,7 @@ export default function ChatWindow() {
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-700 flex items-center gap-2">
         <span className="text-gray-400">#</span>
-        <h2 className="font-semibold text-lg">{activeRoom.name}</h2>
+        <h2 className="font-semibold text-lg">{showName(activeRoom.name)}</h2>
       </div>
 
       {/* Messages */}

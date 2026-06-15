@@ -1,10 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useState,useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useRouter } from "next/navigation";
-import { setActiveRoom, addRoom } from "@/store/slices/roomSlice";
+import { setActiveRoom, addRoom, deleteRoom } from "@/store/slices/roomSlice";
 import { logout } from "@/store/slices/authSlice";
-import { disconnectSocket } from "@/lib/socket";
+import { getSocket, disconnectSocket } from "@/lib/socket";
 
 export default function Sidebar() {
   const dispatch = useDispatch();
@@ -12,7 +12,9 @@ export default function Sidebar() {
   const { rooms, activeRoom } = useSelector((s) => s.rooms);
   const { token, user } = useSelector((s) => s.auth);
   const [newRoomName, setNewRoomName] = useState("");
+  const [newDMName, setNewDMName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function createRoom() {
     const name = newRoomName.trim();
@@ -46,13 +48,85 @@ export default function Sidebar() {
     }
   }
 
+  async function createDM() {
+    const name = newDMName.trim();
+    if (!name) return;
+
+    setCreating(true);
+    const t = token || sessionStorage.getItem("token");
+
+    try {
+      const res = await fetch("/api/rooms", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${t}`,
+        },
+        body: JSON.stringify({ name, isPrivate: true }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        console.error("Create DM error:", error);
+        return;
+      }
+      const room = await res.json();
+
+      // Only add if not already in the list
+      const exists = rooms.find((r) => r.id === room.id);
+      if (!exists) dispatch(addRoom(room));
+
+      dispatch(setActiveRoom(room));
+      setNewDMName("");
+    } catch (err) {
+      console.error("Create room error:", err);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function removeRoom(id) {
+    setDeleting(true);
+    const t = token || sessionStorage.getItem("token");
+    try {
+      const res = await fetch("/api/rooms", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${t}`,
+        },
+        body: JSON.stringify({ roomId: id, userId: user.id }), // ← fixed
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        console.error("Delete room error:", error);
+        return;
+      }
+      dispatch(deleteRoom({ id })); // ← fixed, remove from Redux state
+    } catch (err) {
+      console.error("Delete room error:", err);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function handleLogout() {
   disconnectSocket();
   dispatch(logout());
   // Clear cookie
   document.cookie = "token=; path=/; max-age=0";
   router.push("/login");
-}
+  }
+
+  function showName(name){
+    var roomname=name.split("_");
+    return roomname.find(n=> n!==user.username)||name;
+  }
+
+  useEffect(() => {
+    const socket=getSocket();
+    
+  },[rooms])
 
   // Separate public rooms and DM rooms
   const publicRooms = rooms.filter((r) => !r.isPrivate);
@@ -60,7 +134,6 @@ export default function Sidebar() {
 
   return (
     <div className="w-64 bg-gray-800 flex flex-col border-r border-gray-700">
-
       {/* User info */}
       <div className="p-4 border-b border-gray-700">
         <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">
@@ -92,9 +165,31 @@ export default function Sidebar() {
         </div>
       </div>
 
+      {/* Create DM Input */}
+      <div className="p-3 border-b border-gray-700">
+        <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">
+          New Direct Message
+        </p>
+        <div className="flex gap-2">
+          <input
+            className="flex-1 px-3 py-1.5 text-sm rounded-lg bg-gray-700 text-white outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-500"
+            placeholder="Email"
+            value={newDMName}
+            onChange={(e) => setNewDMName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && createDM()}
+          />
+          <button
+            onClick={createDM}
+            disabled={creating || !newDMName.trim()}
+            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 rounded-lg text-sm font-bold transition"
+          >
+            +
+          </button>
+        </div>
+      </div>
+
       {/* Room list */}
       <div className="flex-1 overflow-y-auto py-2">
-
         {/* Public rooms */}
         {publicRooms.length > 0 && (
           <div className="mb-2">
@@ -102,18 +197,25 @@ export default function Sidebar() {
               Rooms
             </p>
             {publicRooms.map((room) => (
-              <button
-                key={room.id}
-                onClick={() => dispatch(setActiveRoom(room))}
-                className={`w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-gray-700 transition ${
-                  activeRoom?.id === room.id
-                    ? "bg-gray-700 border-l-4 border-indigo-500"
-                    : "border-l-4 border-transparent"
-                }`}
-              >
-                <span className="text-gray-400 text-sm">#</span>
-                <span className="text-sm text-gray-200">{room.name}</span>
-              </button>
+              <div key={room.id} className="flex items-center">
+                <button
+                  onClick={() => dispatch(setActiveRoom(room))}
+                  className={`w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-gray-700 transition ${
+                    activeRoom?.id === room.id
+                      ? "bg-gray-700 border-l-4 border-indigo-500"
+                      : "border-l-4 border-transparent"
+                  }`}
+                >
+                  <span className="text-gray-400 text-sm">#</span>
+                  <span className="text-sm text-gray-200">{room.name}</span>
+                </button>
+                <button
+                  onClick={() => removeRoom(room.id)}
+                  className="px-3 text-gray-400 hover:text-red-600 hover:bg-red-600/150 hover:shadow-[0_0_10px_3px_rgba(220,38,38,0.6)] transition rounded"
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -125,18 +227,27 @@ export default function Sidebar() {
               Direct Messages
             </p>
             {dmRooms.map((room) => (
-              <button
-                key={room.id}
-                onClick={() => dispatch(setActiveRoom(room))}
-                className={`w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-gray-700 transition ${
-                  activeRoom?.id === room.id
-                    ? "bg-gray-700 border-l-4 border-indigo-500"
-                    : "border-l-4 border-transparent"
-                }`}
-              >
-                <span className="text-gray-400 text-sm">@</span>
-                <span className="text-sm text-gray-200">{room.name}</span>
-              </button>
+              <div key={room.id} className="flex items-center">
+                <button
+                  onClick={() => dispatch(setActiveRoom(room))}
+                  className={`w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-gray-700 transition ${
+                    activeRoom?.id === room.id
+                      ? "bg-gray-700 border-l-4 border-indigo-500"
+                      : "border-l-4 border-transparent"
+                  }`}
+                >
+                  <span className="text-gray-400 text-sm">@</span>
+                  <span className="text-sm text-gray-200">
+                    {showName(room.name)}
+                  </span>
+                </button>
+                <button
+                  onClick={() => removeRoom(room.id)}
+                  className="px-3 text-gray-400 hover:text-red-600 hover:bg-red-600/150 hover:shadow-[0_0_10px_3px_rgba(220,38,38,0.6)] transition rounded"
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </div>
         )}

@@ -4,22 +4,22 @@
   "private": true,
   "type": "module",
   "scripts": {
-  "dev": "node src/server/socketServer.js",
-  "build": "next build",
-  "start": "NODE_ENV=production node src/server/socketServer.js",
-  "lint": "next lint",
-  "db:migrate": "prisma migrate dev",
-  "db:generate": "prisma generate",
-  "db:studio": "prisma studio"
-},
+    "dev": "node src/server/socketServer.js",
+    "build": "next build",
+    "start": "NODE_ENV=production node src/server/socketServer.js",
+    "lint": "next lint",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio"
+  },
   "dependencies": {
     "@prisma/client": "^5.14.0",
     "@reduxjs/toolkit": "^2.2.5",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
-    "next": "14.2.4",
-    "react": "^18",
-    "react-dom": "^18",
+    "next": "^16.2.6",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
     "react-redux": "^9.1.2",
     "socket.io": "^4.7.5",
     "socket.io-client": "^4.7.5"

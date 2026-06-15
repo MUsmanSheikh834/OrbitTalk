@@ -7,9 +7,10 @@ export async function GET(req, { params }) {
     const auth = req.headers.get("authorization") || "";
     const token = auth.replace("Bearer ", "");
     verifyToken(token);
+    const {roomId} = await params;
 
     const messages = await prisma.message.findMany({
-      where: { roomId: params.roomId },
+      where: { roomId: roomId },
       orderBy: { createdAt: "asc" },
       take: 50,
       include: {
