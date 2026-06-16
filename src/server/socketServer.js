@@ -64,26 +64,52 @@ app.prepare().then(() => {
       socket.leave(roomId);
     });
 
-    socket.on("send_message", async ({ roomId, content }) => {
-      if (!roomId || !content?.trim()) return;
-      try {
-        const membership = await prisma.roomMember.findUnique({
-          where: { userId_roomId: { userId: socket.user.id, roomId } },
-        });
-        if (!membership) {
-          socket.emit("error", { message: "You are not a member of this room" });
-          return;
-        }
-        const message = await prisma.message.create({
-          data: { content: content.trim(), roomId, senderId: socket.user.id },
-          include: { sender: { select: { id: true, username: true } } },
-        });
-        io.to(roomId).emit("new_message", {...message,roomId: roomId});
-      } catch (err) {
-        console.error("[Socket] send_message error:", err.message);
-        socket.emit("error", { message: "Could not send message" });
-      }
-    });
+   socket.on(
+     "send_message",
+     async ({ roomId, content, type = "text", fileUrl }) => {
+       if (!roomId) return;
+       if (type === "text" && !content?.trim()) return;
+
+       try {
+         const message = await prisma.message.create({
+           data: {
+             content: content?.trim() || "",
+             type,
+             fileUrl: fileUrl || null,
+             roomId,
+             senderId: socket.user.id,
+           },
+           include: { sender: { select: { id: true, username: true } } },
+         });
+         io.to(roomId).emit("new_message", { ...message, roomId });
+       } catch (err) {
+         console.error("[Socket] send_message error:", err.message);
+       }
+     },
+   );
+
+   socket.on("call_user", ({ roomId, offer, callType }) => {
+     // Broadcast to everyone else in the room
+     socket.to(roomId).emit("incoming_call", {
+       from: socket.id,
+       callerName: socket.user.username,
+       roomId,
+       offer,
+       callType,
+     });
+   });
+
+   socket.on("call_answered", ({ roomId, answer }) => {
+     socket.to(roomId).emit("call_answered", { answer });
+   });
+
+   socket.on("ice_candidate", ({ roomId, candidate }) => {
+     socket.to(roomId).emit("ice_candidate", { candidate });
+   });
+
+   socket.on("end_call", ({ roomId }) => {
+     socket.to(roomId).emit("call_ended");
+   });
 
     socket.on("disconnect", (reason) => {
       console.log(`[Socket] Disconnected: ${socket.user.username} — ${reason}`);

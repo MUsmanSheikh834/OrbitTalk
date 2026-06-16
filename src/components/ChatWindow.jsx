@@ -2,7 +2,9 @@
 import { useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { setMessages, addMessage } from "@/store/slices/chatSlice";
+import { incomingCall } from "@/store/slices/callSlice";
 import { getSocket } from "@/lib/socket";
+import { useWebRTC } from "@/context/WebRTCContext";
 import MessageInput from "./MessageInput";
 
 export default function ChatWindow() {
@@ -11,56 +13,73 @@ export default function ChatWindow() {
   const { token, user } = useSelector((s) => s.auth);
   const messagesByRoom = useSelector((s) => s.chat.messagesByRoom);
   const messages = messagesByRoom[activeRoom?.id] || [];
-  console.log("rendering room:", activeRoom?.id, "message count:", messages.length);
   const bottomRef = useRef(null);
 
-  function showName(name){
-    var roomname=name.split("_");
-    return roomname.find(n=> n!==user.username);
-  }
+  // initiateCall comes from context — refs are owned there
+  const { initiateCall } = useWebRTC();
 
+  // Listen for incoming calls globally
   useEffect(() => {
-  if (!activeRoom) return;
+    const t = token || sessionStorage.getItem("token");
+    if (!t) return;
 
-  const roomId = activeRoom.id; // capture to avoid stale closure
-  const t = token || sessionStorage.getItem("token");
-  if (!t) return;
+    const socket = getSocket(t);
 
-  const socket = getSocket(t);
-  console.log("socket connected:", socket.connected);
+    socket.on(
+      "incoming_call",
+      ({ from, callerName, roomId, offer, callType }) => {
+        dispatch(incomingCall({ callerName, roomId, offer, callType }));
+      },
+    );
 
-  socket.emit("join_room", roomId);
+    return () => socket.off("incoming_call");
+  }, [token]);
 
-  fetch(`/api/messages/${roomId}`, {
-    headers: { Authorization: `Bearer ${t}` },
-  })
-    .then((r) => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
+  // Join room, fetch messages, listen for new messages
+  useEffect(() => {
+    if (!activeRoom) return;
+
+    const roomId = activeRoom.id;
+    const t = token || sessionStorage.getItem("token");
+    if (!t) return;
+
+    const socket = getSocket(t);
+
+    socket.emit("join_room", roomId);
+
+    fetch(`/api/messages/${roomId}`, {
+      headers: { Authorization: `Bearer ${t}` },
     })
-    .then((msgs) => {
-      if (Array.isArray(msgs)) {
-        console.log("storing msgs for room:", roomId, "count:", msgs.length, "msgs:", msgs.map(m => m.roomId));
-        dispatch(setMessages({ roomId, messages: msgs }));
-      }
-    })
-    .catch((err) => console.error("Fetch messages error:", err));
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((msgs) => {
+        if (Array.isArray(msgs)) {
+          dispatch(setMessages({ roomId, messages: msgs }));
+        }
+      })
+      .catch((err) => console.error("Fetch messages error:", err));
 
-  socket.on("new_message", (message) => {
-    console.log("incoming message:", message);
-    dispatch(addMessage({ roomId: message.roomId, message }));
-  });
+    socket.on("new_message", (message) => {
+      dispatch(addMessage({ roomId: message.roomId, message }));
+    });
 
-  return () => {
-    socket.emit("leave_room", roomId);
-    socket.off("new_message");
-  };
-}, [activeRoom?.id]);
+    return () => {
+      socket.emit("leave_room", roomId);
+      socket.off("new_message");
+    };
+  }, [activeRoom?.id]);
 
   // Auto scroll to latest message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  function showName(name) {
+    const parts = name.split("_");
+    return parts.find((n) => n !== user.username) || name;
+  }
 
   if (!activeRoom) {
     return (
@@ -75,8 +94,32 @@ export default function ChatWindow() {
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-700 flex items-center gap-2">
-        <span className="text-gray-400">#</span>
-        <h2 className="font-semibold text-lg">{showName(activeRoom.name)}</h2>
+        <span className="text-gray-400">
+          {activeRoom.isPrivate ? "@" : "#"}
+        </span>
+        <h2 className="font-semibold text-lg flex-1">
+          {showName(activeRoom.name)}
+        </h2>
+
+        {/* Call buttons — DMs only */}
+        {activeRoom.isPrivate && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => initiateCall(activeRoom.id, "audio")}
+              className="p-2 rounded-lg hover:bg-gray-700 transition text-gray-300"
+              title="Voice call"
+            >
+              📞
+            </button>
+            <button
+              onClick={() => initiateCall(activeRoom.id, "video")}
+              className="p-2 rounded-lg hover:bg-gray-700 transition text-gray-300"
+              title="Video call"
+            >
+              🎥
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
@@ -104,7 +147,11 @@ export default function ChatWindow() {
                     : "bg-gray-700 text-gray-100 rounded-tl-none"
                 }`}
               >
-                {msg.content}
+                {msg.type === "audio" ? (
+                  <audio controls src={msg.fileUrl} className="max-w-xs" />
+                ) : (
+                  msg.content
+                )}
               </div>
               <span className="text-xs text-gray-600 mt-1 px-1">
                 {new Date(msg.createdAt).toLocaleTimeString([], {
